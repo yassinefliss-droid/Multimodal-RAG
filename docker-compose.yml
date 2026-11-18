@@ -1,0 +1,40 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: mmrag
+      POSTGRES_PASSWORD: mmrag
+      POSTGRES_DB: mmrag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmrag"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    profiles: ["app"]           # docker compose --profile app up
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      MMRAG_DATABASE_URL: postgresql://mmrag:mmrag@db:5432/mmrag
+      # Ollama tourne sur la machine hôte
+      MMRAG_VLM_BASE_URL: ${MMRAG_VLM_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
+      - ./evals:/app/evals
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    command: ["mmrag", "serve", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  pgdata:
+  hf-cache:

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mmrag"
+version = "0.1.0"
+description = "RAG multimodal sur PDF : Docling, LLM vision et pgvector, avec comparaison d'approches et évaluation."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "numpy>=1.26",
+    "pillow>=10",
+    "pypdfium2>=4.30",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "openai>=1.30",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# Extraction Docling + embeddings texte (CPU possible)
+ingest = ["docling>=2.30", "sentence-transformers>=3.0"]
+# Embeddings de pages ColQwen2 (GPU fortement conseillé)
+pages = ["colpali-engine>=0.3.10", "torch>=2.3"]
+dev = ["pytest>=8", "httpx>=0.27", "reportlab>=4", "docling-core>=2.30"]
+
+[project.scripts]
+mmrag = "mmrag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mmrag = ["web/*.html", "sql/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

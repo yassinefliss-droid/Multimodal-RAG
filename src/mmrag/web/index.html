@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG multimodal · comparaison</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e2e1dc; --accent:#2f5d8a;
+          --ok:#2e7d4f; --mid:#b7791f; --bad:#b03a2e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:20px 28px 8px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  header p { margin:0; color:var(--muted); }
+  form { padding:12px 28px; display:grid; gap:10px; max-width:1100px; }
+  textarea, select { width:100%; font:inherit; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+  label.chk { display:flex; gap:6px; align-items:center; color:var(--muted); }
+  button { font:inherit; border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 14px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:wait; }
+  #gold { display:none; padding:10px 14px; border-left:3px solid var(--accent); background:#fff; border-radius:6px; }
+  #results { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; padding:12px 28px 40px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .card h2 { font-size:15px; margin:0; display:flex; justify-content:space-between; }
+  .card h2 span { color:var(--muted); font-weight:400; font-size:13px; }
+  .answer { white-space:pre-wrap; }
+  .cite { display:inline-block; background:#e8eef5; color:var(--accent); border-radius:4px; padding:0 4px; font-size:12px; cursor:pointer; }
+  .thumbs { display:flex; gap:8px; flex-wrap:wrap; }
+  .thumbs a { font-size:12px; color:var(--muted); text-decoration:none; text-align:center; }
+  .thumbs img { display:block; width:84px; border:1px solid var(--line); border-radius:4px; }
+  details { font-size:13px; color:var(--muted); }
+  details pre { white-space:pre-wrap; background:var(--bg); padding:8px; border-radius:6px; max-height:220px; overflow:auto; }
+  .verdict { display:flex; gap:6px; align-items:center; }
+  .verdict button.on[data-v=correct] { background:var(--ok); color:#fff; }
+  .verdict button.on[data-v=partial] { background:var(--mid); color:#fff; }
+  .verdict button.on[data-v=wrong] { background:var(--bad); color:#fff; }
+  .warn { color:var(--bad); font-size:13px; }
+  .err { color:var(--bad); padding:0 28px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RAG multimodal sur PDF</h1>
+  <p>Une question, plusieurs approches côte à côte. Chaque réponse cite ses pages ; note-la pour l'évaluation humaine.</p>
+</header>
+
+<form id="f">
+  <select id="preset"><option value="">— question libre, ou choisis une question du jeu d'évaluation —</option></select>
+  <textarea id="q" rows="2" placeholder="Ex. : What BLEU score does the big Transformer reach on WMT 2014 English-German?"></textarea>
+  <div class="row" id="approaches"></div>
+  <div class="row"><button class="primary" id="go" type="submit">Comparer</button><span id="status"></span></div>
+  <div id="gold"></div>
+</form>
+<div class="err" id="error"></div>
+<div id="results"></div>
+
+<script>
+const APPROACHES = {text: "Texte seul", captions: "Texte + descriptions VLM", pages: "Pages en images", hybrid: "Hybride"};
+const $ = (id) => document.getElementById(id);
+let questions = [];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+for (const [k, v] of Object.entries(APPROACHES)) {
+  $("approaches").insertAdjacentHTML("beforeend",
+    `<label class="chk"><input type="checkbox" value="${k}" checked> ${v}</label>`);
+}
+
+fetch("/questions").then(r => r.json()).then(qs => {
+  questions = qs;
+  for (const q of qs) {
+    $("preset").insertAdjacentHTML("beforeend",
+      `<option value="${esc(q.id)}">${esc(q.id)} · [${esc(q.modality)}] ${esc(q.question.slice(0, 90))}</option>`);
+  }
+}).catch(() => {});
+
+$("preset").addEventListener("change", () => {
+  const q = questions.find(x => x.id === $("preset").value);
+  if (!q) { $("gold").style.display = "none"; return; }
+  $("q").value = q.question;
+  $("gold").style.display = "block";
+  $("gold").innerHTML = `<b>Réponse de référence :</b> ${esc(q.answer)} · <b>pages :</b> ${esc(q.doc_id)} p.${q.pages.join(", ")}`
+    + (q.verified ? "" : ` <span class="warn">(non vérifiée)</span>`);
+});
+
+function renderAnswer(text) {
+  return esc(text).replace(/\[S(\d+)\]/g, '<span class="cite" data-s="$1">[S$1]</span>');
+}
+
+function card(a, question, qid) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const cited = new Set(a.citations.map(c => c.sid));
+  const thumbs = a.contexts.map(c => `
+      <a href="${c.image_url}" target="_blank" title="${esc(c.doc_id)} p.${c.page}">
+        <img loading="lazy" src="${c.image_url}" alt="">${cited.has(c.sid) ? "<b>" : ""}S${c.sid} · ${esc(c.doc_id)} p.${c.page}${cited.has(c.sid) ? "</b>" : ""}
+      </a>`).join("");
+  const ctx = a.contexts.filter(c => c.text).map(c => `[S${c.sid}] ${c.doc_id} p.${c.page} (${c.kind})\n${c.text}`).join("\n\n");
+  el.innerHTML = `
+    <h2>${esc(APPROACHES[a.approach] || a.approach)} <span>${a.latency_s.toFixed(1)} s</span></h2>
+    <div class="answer">${renderAnswer(a.text)}</div>
+    ${a.invalid_citations.length ? `<div class="warn">Citations hors contexte : ${a.invalid_citations.map(s => "S" + s).join(", ")}</div>` : ""}
+    ${!a.not_found && !a.citations.length ? `<div class="warn">Réponse sans citation.</div>` : ""}
+    <div class="thumbs">${thumbs}</div>
+    ${ctx ? `<details><summary>Passages envoyés au modèle</summary><pre>${esc(ctx)}</pre></details>` : ""}
+    <details><summary>Classement des pages</summary><pre>${esc(a.ranked_pages.join("\n"))}</pre></details>
+    <div class="verdict"><span>Verdict :</span>
+      <button type="button" data-v="correct">Juste</button>
+      <button type="button" data-v="partial">Partiel</button>
+      <button type="button" data-v="wrong">Faux</button>
+    </div>`;
+  el.querySelectorAll(".cite").forEach(s => s.addEventListener("click", () => {
+    const c = a.contexts.find(x => x.sid == s.dataset.s);
+    if (c) window.open(c.image_url, "_blank");
+  }));
+  el.querySelectorAll(".verdict button").forEach(b => b.addEventListener("click", async () => {
+    const r = await fetch("/judgments", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question, approach: a.approach, answer: a.text, verdict: b.dataset.v, question_id: qid || null})});
+    if (r.ok) { el.querySelectorAll(".verdict button").forEach(x => x.classList.remove("on")); b.classList.add("on"); }
+  }));
+  return el;
+}
+
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = $("q").value.trim();
+  const approaches = [...document.querySelectorAll("#approaches input:checked")].map(i => i.value);
+  if (!question || !approaches.length) return;
+  $("go").disabled = true; $("status").textContent = "Le modèle réfléchit…"; $("error").textContent = "";
+  $("results").innerHTML = "";
+  try {
+    const qid = $("preset").value || null;
+    const r = await fetch("/compare", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question, approaches, question_id: qid})});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const data = await r.json();
+    for (const a of data.answers) $("results").appendChild(card(a, question, qid));
+  } catch (err) {
+    $("error").textContent = "Erreur : " + err.message;
+  } finally {
+    $("go").disabled = false; $("status").textContent = "";
+  }
+});
+</script>
+</body>
+</html>

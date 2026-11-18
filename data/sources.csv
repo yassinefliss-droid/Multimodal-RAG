@@ -1,0 +1,17 @@
+id,arxiv_id,title,theme
+transformer,1706.03762,Attention Is All You Need,transformers
+vit,2010.11929,An Image is Worth 16x16 Words (ViT),vision
+resnet,1512.03385,Deep Residual Learning for Image Recognition,vision
+clip,2103.00020,Learning Transferable Visual Models From Natural Language Supervision (CLIP),vision
+bert,1810.04805,BERT: Pre-training of Deep Bidirectional Transformers,llm
+lora,2106.09685,LoRA: Low-Rank Adaptation of Large Language Models,llm
+llama2,2307.09288,Llama 2: Open Foundation and Fine-Tuned Chat Models,llm
+mistral7b,2310.06825,Mistral 7B,llm
+rag,2005.11401,Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks,retrieval
+colbert,2004.12832,ColBERT: Efficient and Effective Passage Search,retrieval
+colpali,2407.01449,ColPali: Efficient Document Retrieval with Vision Language Models,retrieval
+docling,2408.09869,Docling Technical Report,documents
+layoutlmv3,2204.08387,LayoutLMv3: Pre-training for Document AI,documents
+qwen2vl,2409.12191,Qwen2-VL: Enhancing Vision-Language Model's Perception,documents
+docvqa,2007.00398,DocVQA: A Dataset for VQA on Document Images,documents
+chartqa,2203.10244,ChartQA: A Benchmark for Question Answering about Charts,documents
